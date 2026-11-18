@@ -1,41 +1,26 @@
 
-name: Compile ESP32 Firmware
-
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - 'ESP32_Blink/**'
-      - '.github/workflows/compile.yml'
-
-jobs:
-  compile:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Arduino CLI
-        uses: arduino/setup-arduino-cli@v2
-
-      - name: Install ESP32 platform
+      - name: Merge firmware into one BIN
         run: |
-          arduino-cli config init
-          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli core update-index
-          arduino-cli core install esp32:esp32
+          python -m esptool --chip esp32 merge-bin \
+            -o ESP32_WROOM32_LED_Blink_Merged_Flash_0x0.bin \
+            --flash-mode dio \
+            --flash-freq 40m \
+            --flash-size 4MB \
+            0x1000 firmware/ESP32_Blink.ino.bootloader.bin \
+            0x8000 firmware/ESP32_Blink.ino.partitions.bin \
+            0x10000 firmware/ESP32_Blink.ino.bin
 
-      - name: Compile ESP32 Blink
+      - name: Publish direct BIN download
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p firmware
-          arduino-cli compile \
-            --fqbn esp32:esp32:esp32 \
-            --output-dir firmware \
-            ESP32_Blink
+          FILE="ESP32_WROOM32_LED_Blink_Merged_Flash_0x0.bin"
+          TAG="esp32-led-blink-latest"
 
-      - name: Upload firmware
-        uses: actions/upload-artifact@v4
-        with:
-          name: ESP32-Firmware
-          path: firmware/
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$FILE" --clobber
+          else
+            gh release create "$TAG" "$FILE" \
+              --title "ESP32 WROOM32 - LED Blink" \
+              --notes "Merged firmware for flashing at 0x0."
+          fi

@@ -1,16 +1,16 @@
 
-name: ESP32 Project Builder
+name: ESP32 Firmware Builder
 
 on:
   workflow_dispatch:
     inputs:
       project:
-        description: "Choose project to compile"
+        description: "Select ESP32 project"
         required: true
         type: choice
         options:
-          - 01_LED_Blink
           - 02_LCD_I2C_Test
+          - 03_RFID_Access_Control
 
 permissions:
   contents: write
@@ -29,17 +29,20 @@ jobs:
       - name: Install ESP32 core
         run: |
           arduino-cli config init
-          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli config add \
+            board_manager.additional_urls \
+            https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.0.7
 
-      - name: Install LCD library
-        if: inputs.project == '02_LCD_I2C_Test'
+      - name: Install libraries
         run: |
           arduino-cli lib update-index
           arduino-cli lib install "hd44780"
+          arduino-cli lib install "MFRC522"
 
-      - name: Compile selected project
+      - name: Compile firmware
         env:
           PROJECT: ${{ inputs.project }}
         run: |
@@ -54,12 +57,14 @@ jobs:
         run: |
           python -m pip install esptool==4.8.1
 
-      - name: Merge firmware into one BIN
+      - name: Create merged BIN
         env:
           PROJECT: ${{ inputs.project }}
         run: |
-          BOOT_APP0=$(find "$HOME/.arduino15/packages/esp32" \
-            -name boot_app0.bin -print -quit)
+          BOOT_APP0=$(find \
+            "$HOME/.arduino15/packages/esp32" \
+            -name boot_app0.bin \
+            -print -quit)
 
           test -n "$BOOT_APP0"
 
@@ -75,18 +80,20 @@ jobs:
             0xe000 "$BOOT_APP0" \
             0x10000 "firmware/${PROJECT}.ino.bin"
 
-      - name: Publish BIN to GitHub Releases
+          test -s "$FILE"
+
+      - name: Publish to GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
           PROJECT: ${{ inputs.project }}
         run: |
           FILE="ESP32_WROOM32_${PROJECT}_Merged_Flash_0x0.bin"
-          TAG="esp32-${PROJECT}-${GITHUB_RUN_NUMBER}"
+          TAG="esp32-${PROJECT}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
           gh release create "$TAG" "$FILE" \
             --target "$GITHUB_SHA" \
-            --title "ESP32 ${PROJECT} Build ${GITHUB_RUN_NUMBER}" \
-            --notes "Merged ESP32 firmware. Flash at offset 0x0000."
+            --title "ESP32 ${PROJECT}" \
+            --notes "Flash merged BIN at offset 0x0000."
 
           echo "### Firmware ready" >> "$GITHUB_STEP_SUMMARY"
           echo "[$FILE](https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${FILE})" >> "$GITHUB_STEP_SUMMARY"

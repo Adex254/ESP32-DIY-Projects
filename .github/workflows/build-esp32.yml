@@ -11,6 +11,7 @@ on:
         options:
           - 02_LCD_I2C_Test
           - 03_RFID_Access_Control
+          - 04_Passive_Buzzer_Test
 
 permissions:
   contents: write
@@ -35,7 +36,7 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.0.7
 
-      - name: Install libraries
+      - name: Install required libraries
         run: |
           arduino-cli lib update-index
           arduino-cli lib install "hd44780"
@@ -46,7 +47,6 @@ jobs:
           PROJECT: ${{ inputs.project }}
         run: |
           mkdir -p firmware
-
           arduino-cli compile \
             --fqbn esp32:esp32:esp32 \
             --output-dir firmware \
@@ -92,7 +92,6 @@ jobs:
           gh release create "$TAG" "$FILE" \
             --target "$GITHUB_SHA" \
             --title "ESP32 ${PROJECT}" \
-            --notes "Flash at offset 0x0000."
+            --notes "Merged firmware. Flash at 0x0000."
 
-          echo "### Firmware ready" >> "$GITHUB_STEP_SUMMARY"
-          echo "[$FILE](https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${FILE})" >> "$GITHUB_STEP_SUMMARY"
+          echo "Firmware: $FILE" >> "$GITHUB_STEP_SUMMARY"

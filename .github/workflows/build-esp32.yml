@@ -32,11 +32,10 @@ jobs:
           arduino-cli config add \
             board_manager.additional_urls \
             https://espressif.github.io/arduino-esp32/package_esp32_index.json
-
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.0.7
 
-      - name: Install required libraries
+      - name: Install libraries
         run: |
           arduino-cli lib update-index
           arduino-cli lib install "hd44780"
@@ -57,7 +56,7 @@ jobs:
         run: |
           python -m pip install esptool==4.8.1
 
-      - name: Merge firmware into BIN
+      - name: Merge firmware into one BIN
         env:
           PROJECT: ${{ inputs.project }}
         run: |
@@ -93,7 +92,7 @@ jobs:
           gh release create "$TAG" "$FILE" \
             --target "$GITHUB_SHA" \
             --title "ESP32 ${PROJECT}" \
-            --notes "Merged ESP32 firmware. Flash at offset 0x0000."
+            --notes "Flash at offset 0x0000."
 
           echo "### Firmware ready" >> "$GITHUB_STEP_SUMMARY"
           echo "[$FILE](https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${FILE})" >> "$GITHUB_STEP_SUMMARY"

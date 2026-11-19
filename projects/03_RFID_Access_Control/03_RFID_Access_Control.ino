@@ -6,17 +6,17 @@
 #include <hd44780.h>
 #include <hd44780ioClass/hd44780_I2Cexp.h>
 
-// ===================================
+// ========================================
 // PROJECT 03 - RFID ACCESS CONTROL
-// VERSION 3 - PASSIVE BUZZER DEBUG
+// VERSION 4 - DIAGNOSTIC FIRMWARE
 // ESP32 Arduino Core 3.0.7
-// ===================================
+// ========================================
 
-// LCD I2C pins
+// LCD1602 I2C
 #define LCD_SDA 21
 #define LCD_SCL 22
 
-// RC522 RFID SPI pins
+// RC522 RFID SPI
 #define RFID_SS   5
 #define RFID_RST  27
 #define RFID_SCK  18
@@ -30,6 +30,7 @@
 hd44780_I2Cexp lcd;
 MFRC522 rfid(RFID_SS, RFID_RST);
 
+bool buzzerOK = false;
 bool lcdOK = false;
 bool rfidOK = false;
 bool cardDisplayed = false;
@@ -37,38 +38,31 @@ bool cardDisplayed = false;
 unsigned long lastCardTime = 0;
 unsigned long lastRetryTime = 0;
 
-// ===================================
-// PASSIVE BUZZER FUNCTIONS
-// ===================================
-
-void toneOn(int frequency) {
-  ledcWriteTone(BUZZER_PIN, frequency);
-}
-
-void toneOff() {
-  ledcWriteTone(BUZZER_PIN, 0);
-}
+// ========================================
+// PASSIVE BUZZER
+// ========================================
 
 void beep(int count, int duration = 120) {
+  if (!buzzerOK) return;
+
   for (int i = 0; i < count; i++) {
-    toneOn(BUZZER_FREQ);
+    ledcWriteTone(BUZZER_PIN, BUZZER_FREQ);
     delay(duration);
 
-    toneOff();
+    ledcWriteTone(BUZZER_PIN, 0);
     delay(150);
   }
 }
 
-// ===================================
-// LCD DISPLAY FUNCTION
-// ===================================
+// ========================================
+// LCD DISPLAY
+// ========================================
 
-void showLCD(String line1, String line2) {
+void showLCD(const String &line1,
+             const String &line2) {
   Serial.println(line1 + " | " + line2);
 
-  if (!lcdOK) {
-    return;
-  }
+  if (!lcdOK) return;
 
   lcd.clear();
 
@@ -79,9 +73,9 @@ void showLCD(String line1, String line2) {
   lcd.print(line2.substring(0, 16));
 }
 
-// ===================================
-// RFID UID FUNCTION
-// ===================================
+// ========================================
+// RFID UID
+// ========================================
 
 String getUID() {
   String uid = "";
@@ -98,57 +92,63 @@ String getUID() {
   return uid;
 }
 
-// ===================================
-// RFID INITIALIZATION TEST
-// ===================================
+// ========================================
+// RFID INITIALIZATION
+// ========================================
 
 bool initializeRFID() {
   rfid.PCD_Init();
   delay(100);
 
-  byte version = rfid.PCD_ReadRegister(
-    MFRC522::VersionReg
-  );
+  byte version =
+    rfid.PCD_ReadRegister(MFRC522::VersionReg);
 
   Serial.print("RC522 version: 0x");
   Serial.println(version, HEX);
 
+  // Known genuine MFRC522 versions.
+  // Some compatible clones report other values.
+  if (version == 0x91 || version == 0x92) {
+    return true;
+  }
+
+  // 0x00 and 0xFF normally indicate
+  // missing or failed SPI communication.
   if (version == 0x00 || version == 0xFF) {
     return false;
   }
 
+  // Accept other responding versions for
+  // card detection testing.
+  Serial.println("Unrecognized RFID version");
   return true;
 }
 
-// ===================================
+// ========================================
 // SETUP
-// ===================================
+// ========================================
 
 void setup() {
-  // STEP 1: Initialize passive buzzer
-  pinMode(BUZZER_PIN, OUTPUT);
+  Serial.begin(115200);
+  delay(300);
 
-  bool pwmOK = ledcAttach(
+  Serial.println();
+  Serial.println("======================");
+  Serial.println("PROJECT 03 VERSION 4");
+  Serial.println("RFID LCD BUZZER TEST");
+  Serial.println("======================");
+
+  // Stage 1: Passive buzzer
+  buzzerOK = ledcAttach(
     BUZZER_PIN,
     BUZZER_FREQ,
     8
   );
 
-  Serial.begin(115200);
-  delay(300);
+  // One beep = firmware started
+  beep(1);
 
-  Serial.println();
-  Serial.println("====================");
-  Serial.println("PROJECT 03 VERSION 3");
-  Serial.println("RFID + LCD + BUZZER");
-  Serial.println("====================");
-
-  if (pwmOK) {
-    // One beep: firmware has started
-    beep(1);
-  }
-
-  // STEP 2: Initialize LCD
+  // Stage 2: LCD
   Wire.begin(LCD_SDA, LCD_SCL);
   Wire.setClock(100000);
 
@@ -158,24 +158,27 @@ void setup() {
     lcdOK = true;
     lcd.backlight();
 
-    showLCD("PROJECT 03 V3",
+    showLCD("PROJECT 03 V4",
             "LCD TEST OK");
 
-    // Two beeps: LCD initialized
+    // Two short beeps = LCD ready
     beep(2);
   } else {
-    Serial.print("LCD ERROR: ");
+    Serial.print("LCD error: ");
     Serial.println(lcdStatus);
 
-    // Two long beeps: LCD failure
+    // Two long beeps = LCD error
     beep(2, 500);
   }
 
-  delay(1500);
+  delay(2000);
 
-  // STEP 3: Initialize SPI
+  // Stage 3: SPI initialization
   showLCD("INITIALIZING",
           "RFID READER");
+
+  pinMode(RFID_SS, OUTPUT);
+  digitalWrite(RFID_SS, HIGH);
 
   SPI.begin(
     RFID_SCK,
@@ -184,35 +187,33 @@ void setup() {
     RFID_SS
   );
 
-  pinMode(RFID_SS, OUTPUT);
-  digitalWrite(RFID_SS, HIGH);
-
   delay(100);
 
-  // STEP 4: Initialize RFID reader
+  // Stage 4: RFID initialization
   rfidOK = initializeRFID();
 
   if (rfidOK) {
     showLCD("RFID READY",
             "SCAN YOUR CARD");
 
-    // Three beeps: RFID communication OK
+    // Three beeps = RFID responding
     beep(3);
   } else {
     showLCD("RFID ERROR",
             "CHECK SPI");
 
-    // One long beep: RFID error
+    // One long beep = RFID error
     beep(1, 800);
   }
 }
 
-// ===================================
+// ========================================
 // MAIN LOOP
-// ===================================
+// ========================================
 
 void loop() {
-  // Retry RFID if not detected
+
+  // Retry if RFID reader failed
   if (!rfidOK) {
     if (millis() - lastRetryTime >= 3000) {
       lastRetryTime = millis();
@@ -230,21 +231,22 @@ void loop() {
     return;
   }
 
-  // Return to standby after card scan
+  // Return to standby after 3.5 seconds
   if (cardDisplayed &&
       millis() - lastCardTime >= 3500) {
+
     cardDisplayed = false;
 
     showLCD("SCAN RFID CARD",
             "SYSTEM READY");
   }
 
-  // Check for a new RFID card
+  // Wait for RFID card
   if (!rfid.PICC_IsNewCardPresent()) {
     return;
   }
 
-  // Read card serial number
+  // Read card UID
   if (!rfid.PICC_ReadCardSerial()) {
     return;
   }
@@ -254,7 +256,7 @@ void loop() {
   Serial.print("CARD UID: ");
   Serial.println(uid);
 
-  // Display card UID
+  // Show UID on LCD
   if (uid.length() <= 16) {
     showLCD("CARD DETECTED", uid);
   } else {
@@ -264,13 +266,12 @@ void loop() {
     );
   }
 
-  // Four beeps: card detected
+  // Four short beeps = card detected
   beep(4);
 
   lastCardTime = millis();
   cardDisplayed = true;
 
-  // End RFID communication
   rfid.PICC_HaltA();
   rfid.PCD_StopCrypto1();
 }
